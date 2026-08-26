@@ -96,6 +96,12 @@ def generate_column_mask(width: int, mode: str = 'random', ratio: float = 0.5, s
     np.random.seed(seed + 100)
     if mode == 'random':
         return (np.random.rand(width) < ratio).astype(np.uint8)
+    elif mode == 'random_count' or mode == 'exact_count':
+        count = int(round(ratio * width)) if ratio <= 1.0 else int(ratio)
+        count = max(1, min(width, count))
+        chosen = np.random.choice(width, size=count, replace=False)
+        mask[chosen] = 1
+        return mask
     elif mode == 'block_half':
         mask[width // 2:] = 1 # Right half Rule B
         return mask

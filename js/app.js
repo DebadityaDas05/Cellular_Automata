@@ -104,6 +104,19 @@
                 let r = prng(currSeed++);
                 mask[i] = r < ratio ? 1 : 0; // 1 = Target Rule B
             }
+        } else if (mode === 'random_count') {
+            let count = Math.max(1, Math.min(w, Math.round(ratio * w)));
+            let indices = Array.from({length: w}, (_, i) => i);
+            // Fisher-Yates shuffle with PRNG
+            for (let i = w - 1; i > 0; i--) {
+                let j = Math.floor(prng(currSeed++) * (i + 1));
+                let temp = indices[i];
+                indices[i] = indices[j];
+                indices[j] = temp;
+            }
+            for (let i = 0; i < count; i++) {
+                mask[indices[i]] = 1;
+            }
         } else if (mode === 'block_half') {
             let half = Math.floor(w / 2);
             for (let i = half; i < w; i++) {
@@ -451,7 +464,7 @@
         let groupSpecific = document.getElementById('group-specific-cols');
         let groupSlider = document.getElementById('group-ratio-slider');
         if (groupSpecific) groupSpecific.style.display = (columnMode === 'specific') ? 'block' : 'none';
-        if (groupSlider) groupSlider.style.display = (columnMode === 'random' || columnMode === 'striped') ? 'block' : 'none';
+        if (groupSlider) groupSlider.style.display = (columnMode === 'random' || columnMode === 'random_count' || columnMode === 'striped') ? 'block' : 'none';
 
         // Show/hide custom input row
         document.getElementById('custom-input-group').style.display = (initMode === 'custom') ? 'block' : 'none';
