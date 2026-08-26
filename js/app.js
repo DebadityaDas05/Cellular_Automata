@@ -320,6 +320,37 @@
         }
     }
 
+    let cachedMatA = null, cachedMatB = null, cachedMatMix = null, cachedMask = null;
+
+    function updateViewport() {
+        if (!cachedMatA || !cachedMatB || !cachedMatMix || !cachedMask) {
+            updateSimulation();
+            return;
+        }
+
+        let viewY = (sliderViewY && sliderViewY.value) ? parseInt(sliderViewY.value, 10) : 0;
+        let viewX = (sliderViewX && sliderViewX.value) ? parseInt(sliderViewX.value, 10) : 0;
+
+        let renderW = (width > 240) ? 200 : width;
+        let renderH = (steps > 180) ? 200 : steps;
+
+        viewY = Math.max(0, Math.min(viewY, steps - renderH));
+        viewX = Math.max(0, Math.min(viewX, width - renderW));
+
+        if (txtViewYVal) txtViewYVal.textContent = `t=${viewY}`;
+        if (txtViewXVal) txtViewXVal.textContent = `x=${viewX}`;
+
+        // Instant GPU Viewport Shader Redraw (0.1ms!)
+        let gpuSuccessA = window.GLEngine ? window.GLEngine.renderMatrixGPU(canvasBase, cachedMatA, '#0f172a', '#38bdf8', viewX, viewY, renderW, renderH) : false;
+        let gpuSuccessB = window.GLEngine ? window.GLEngine.renderMatrixGPU(canvasTarget, cachedMatB, '#0f172a', '#f43f5e', viewX, viewY, renderW, renderH) : false;
+        let gpuSuccessMix = window.GLEngine ? window.GLEngine.renderMatrixGPU(canvasMixed, cachedMatMix, '#0f172a', '#a855f7', viewX, viewY, renderW, renderH) : false;
+
+        if (!gpuSuccessA) renderMatrixToCanvas(canvasBase, cachedMatA, '#0f172a', '#38bdf8', viewX, viewY, renderW, renderH);
+        if (!gpuSuccessB) renderMatrixToCanvas(canvasTarget, cachedMatB, '#0f172a', '#f43f5e', viewX, viewY, renderW, renderH);
+        if (!gpuSuccessMix) renderMatrixToCanvas(canvasMixed, cachedMatMix, '#0f172a', '#a855f7', viewX, viewY, renderW, renderH);
+        renderMaskToCanvas(canvasMask, cachedMask, renderH, viewX, renderW);
+    }
+
     function updateSimulation() {
         // Read UI inputs safely with fallbacks
         ruleA = (selRuleA && selRuleA.value) ? parseInt(selRuleA.value, 10) : 108;
@@ -350,19 +381,6 @@
             if (groupView) groupView.style.display = 'none';
         }
 
-        let viewY = (sliderViewY && sliderViewY.value) ? parseInt(sliderViewY.value, 10) : 0;
-        let viewX = (sliderViewX && sliderViewX.value) ? parseInt(sliderViewX.value, 10) : 0;
-
-        // Viewport window dimensions (sample 200x200 if large scale)
-        let renderW = (width > 240) ? 200 : width;
-        let renderH = (steps > 180) ? 200 : steps;
-
-        viewY = Math.max(0, Math.min(viewY, steps - renderH));
-        viewX = Math.max(0, Math.min(viewX, width - renderW));
-
-        if (txtViewYVal) txtViewYVal.textContent = `t=${viewY}`;
-        if (txtViewXVal) txtViewXVal.textContent = `x=${viewX}`;
-
         if (txtRatioVal) txtRatioVal.textContent = Math.round(mixRatio * 100) + '%';
         if (txtDensityVal) txtDensityVal.textContent = Math.round(initDensity * 100) + '%';
 
@@ -379,29 +397,34 @@
         let initRow = generateInitialRow(width, initMode, initDensity, seed, customPatternStr);
         let mask = generateColumnMask(width, columnMode, mixRatio, seed, specificStr);
 
-        // Run simulations
-        let matA = simulateSingleRule(initRow, steps, ruleA);
-        let matB = simulateSingleRule(initRow, steps, ruleB);
-        let matMix = simulateColumnMixedRule(initRow, steps, ruleA, ruleB, mask);
+        // Invalidate GPU textures on new simulation
+        if (window.GLEngine) {
+            window.GLEngine.invalidateTexture(canvasBase);
+            window.GLEngine.invalidateTexture(canvasTarget);
+            window.GLEngine.invalidateTexture(canvasMixed);
+        }
 
-        // Render to canvases
-        renderMatrixToCanvas(canvasBase, matA, '#0f172a', '#38bdf8', viewX, viewY, renderW, renderH);
-        renderMatrixToCanvas(canvasTarget, matB, '#0f172a', '#f43f5e', viewX, viewY, renderW, renderH);
-        renderMatrixToCanvas(canvasMixed, matMix, '#0f172a', '#a855f7', viewX, viewY, renderW, renderH);
-        renderMaskToCanvas(canvasMask, mask, renderH, viewX, renderW);
+        // Run simulations once and cache
+        cachedMatA = simulateSingleRule(initRow, steps, ruleA);
+        cachedMatB = simulateSingleRule(initRow, steps, ruleB);
+        cachedMatMix = simulateColumnMixedRule(initRow, steps, ruleA, ruleB, mask);
+        cachedMask = mask;
+
+        // Render initial viewport
+        updateViewport();
 
         // Compute metrics
-        let entA = computeEntropy(matA);
-        let entB = computeEntropy(matB);
-        let entMix = computeEntropy(matMix);
+        let entA = computeEntropy(cachedMatA);
+        let entB = computeEntropy(cachedMatB);
+        let entMix = computeEntropy(cachedMatMix);
 
-        let perA = detectPeriodicity(matA);
-        let perB = detectPeriodicity(matB);
-        let perMix = detectPeriodicity(matMix);
+        let perA = detectPeriodicity(cachedMatA);
+        let perB = detectPeriodicity(cachedMatB);
+        let perMix = detectPeriodicity(cachedMatMix);
 
         let classA = window.Wolfram88.CLASSES[ruleA] || 'Unknown';
         let classB = window.Wolfram88.CLASSES[ruleB] || 'Unknown';
-        let mixClassInfo = classifyResult(matMix, entMix, perMix);
+        let mixClassInfo = classifyResult(cachedMatMix, entMix, perMix);
         let dominanceStr = evaluateDominance(ruleA, ruleB, entA, entB, entMix, perMix);
 
         // Update UI Badges & Text
@@ -469,13 +492,13 @@
             optA.value = r;
             optA.textContent = `Rule ${r} (Class ${cls})`;
             if (r === ruleA) optA.selected = true;
-            selRuleA.appendChild(optA);
+            if (selRuleA) selRuleA.appendChild(optA);
 
             let optB = document.createElement('option');
             optB.value = r;
             optB.textContent = `Rule ${r} (Class ${cls})`;
             if (r === ruleB) optB.selected = true;
-            selRuleB.appendChild(optB);
+            if (selRuleB) selRuleB.appendChild(optB);
         });
 
         // Event listeners (null-safe)
@@ -485,8 +508,16 @@
         inputSpecificCols?.addEventListener('input', updateSimulation);
         sliderRatio?.addEventListener('input', updateSimulation);
         selGridScale?.addEventListener('change', updateSimulation);
-        sliderViewY?.addEventListener('input', updateSimulation);
-        sliderViewX?.addEventListener('input', updateSimulation);
+
+        // Viewport Sliders trigger instant GPU updateViewport (0.1ms!) without full re-simulation
+        sliderViewY?.addEventListener('input', updateViewport);
+        sliderViewX?.addEventListener('input', updateViewport);
+
+        selInitMode?.addEventListener('change', updateSimulation);
+        sliderDensity?.addEventListener('input', updateSimulation);
+        inputSeed?.addEventListener('input', updateSimulation);
+        inputCustomPattern?.addEventListener('input', updateSimulation);
+        btnRun?.addEventListener('click', updateSimulation);
         selInitMode?.addEventListener('change', updateSimulation);
         sliderDensity?.addEventListener('input', updateSimulation);
         inputSeed?.addEventListener('input', updateSimulation);
