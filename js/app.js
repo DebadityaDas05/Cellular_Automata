@@ -322,6 +322,62 @@
 
     let cachedMatA = null, cachedMatB = null, cachedMatMix = null, cachedMask = null;
 
+    let canvasMinimap, cardMinimap, txtMinimapCoords;
+    let isDraggingMinimap = false;
+
+    function renderMinimap(matrix, viewX, viewY, renderW, renderH) {
+        if (!canvasMinimap || !matrix) return;
+        let ctx = canvasMinimap.getContext('2d');
+        let mw = canvasMinimap.width;
+        let mh = canvasMinimap.height;
+
+        let st = matrix.length;
+        let w = matrix[0].length;
+
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(0, 0, mw, mh);
+
+        // Draw miniature overview sampling (R8 downsampled pixel buffer)
+        let imgData = ctx.createImageData(mw, mh);
+        let data = imgData.data;
+
+        let stepY = st / mh;
+        let stepX = w / mw;
+
+        let ptr = 0;
+        for (let y = 0; y < mh; y++) {
+            let t = Math.min(st - 1, Math.floor(y * stepY));
+            let row = matrix[t];
+            for (let x = 0; x < mw; x++) {
+                let i = Math.min(w - 1, Math.floor(x * stepX));
+                let bit = row[i];
+                data[ptr]     = bit ? 168 : 15;
+                data[ptr + 1] = bit ? 85  : 23;
+                data[ptr + 2] = bit ? 247 : 42;
+                data[ptr + 3] = 255;
+                ptr += 4;
+            }
+        }
+        ctx.putImageData(imgData, 0, 0);
+
+        // Draw Glowing Bounding Box showing exact 200x200 Viewport Location
+        let rx = (viewX / w) * mw;
+        let ry = (viewY / st) * mh;
+        let rw = Math.max(12, (renderW / w) * mw);
+        let rh = Math.max(12, (renderH / st) * mh);
+
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+        ctx.fillRect(rx, ry, rw, rh);
+
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(rx, ry, rw, rh);
+
+        if (txtMinimapCoords) {
+            txtMinimapCoords.textContent = `Viewport Location: (x=${viewX}..${viewX + renderW}, t=${viewY}..${viewY + renderH})`;
+        }
+    }
+
     function updateViewport() {
         if (!cachedMatA || !cachedMatB || !cachedMatMix || !cachedMask) {
             updateSimulation();
@@ -349,6 +405,9 @@
         if (!gpuSuccessB) renderMatrixToCanvas(canvasTarget, cachedMatB, '#0f172a', '#f43f5e', viewX, viewY, renderW, renderH);
         if (!gpuSuccessMix) renderMatrixToCanvas(canvasMixed, cachedMatMix, '#0f172a', '#a855f7', viewX, viewY, renderW, renderH);
         renderMaskToCanvas(canvasMask, cachedMask, renderH, viewX, renderW);
+
+        // Render Viewport Bounding Box on Minimap
+        renderMinimap(cachedMatMix, viewX, viewY, renderW, renderH);
     }
 
     function updateSimulation() {
@@ -379,6 +438,10 @@
             width = 240;
             steps = 180;
             if (groupView) groupView.style.display = 'none';
+        }
+
+        if (cardMinimap) {
+            cardMinimap.style.display = (width > 240) ? 'block' : 'none';
         }
 
         if (txtRatioVal) txtRatioVal.textContent = Math.round(mixRatio * 100) + '%';
@@ -518,11 +581,51 @@
         inputSeed?.addEventListener('input', updateSimulation);
         inputCustomPattern?.addEventListener('input', updateSimulation);
         btnRun?.addEventListener('click', updateSimulation);
-        selInitMode?.addEventListener('change', updateSimulation);
-        sliderDensity?.addEventListener('input', updateSimulation);
-        inputSeed?.addEventListener('input', updateSimulation);
-        inputCustomPattern?.addEventListener('input', updateSimulation);
-        btnRun?.addEventListener('click', updateSimulation);
+        canvasMinimap = document.getElementById('canvas-minimap');
+        cardMinimap = document.getElementById('card-minimap');
+        txtMinimapCoords = document.getElementById('txt-minimap-coords');
+
+        // Interactive Minimap Dragging & Clicking
+        if (canvasMinimap) {
+            let handleMinimapInput = (e) => {
+                let rect = canvasMinimap.getBoundingClientRect();
+                let mx = e.clientX - rect.left;
+                let my = e.clientY - rect.top;
+
+                let renderW = (width > 240) ? 200 : width;
+                let renderH = (steps > 180) ? 200 : steps;
+
+                // Map minimap click to grid X and Y offsets
+                let newX = Math.round((mx / canvasMinimap.width) * width - renderW / 2);
+                let newY = Math.round((my / canvasMinimap.height) * steps - renderH / 2);
+
+                newX = Math.max(0, Math.min(newX, width - renderW));
+                newY = Math.max(0, Math.min(newY, steps - renderH));
+
+                if (sliderViewX) sliderViewX.value = newX;
+                if (sliderViewY) sliderViewY.value = newY;
+
+                updateViewport();
+            };
+
+            canvasMinimap.addEventListener('mousedown', (e) => {
+                isDraggingMinimap = true;
+                handleMinimapInput(e);
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (isDraggingMinimap) handleMinimapInput(e);
+            });
+
+            window.addEventListener('mouseup', () => {
+                isDraggingMinimap = false;
+            });
+        }
+
+        // Toggle Minimap Card Visibility based on Scale
+        if (cardMinimap) {
+            cardMinimap.style.display = (width > 240) ? 'block' : 'none';
+        }
 
         btnRandomizeSeed?.addEventListener('click', () => {
             if (inputSeed) inputSeed.value = Math.floor(Math.random() * 900000) + 100000;

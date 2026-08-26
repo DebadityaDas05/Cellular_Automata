@@ -37,6 +37,7 @@ header h1 {
     font-weight: 800;
     background: linear-gradient(135deg, #38bdf8, #a855f7, #f43f5e);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     margin-bottom: 6px;
 }
@@ -238,11 +239,12 @@ canvas {
     image-rendering: pixelated;
 }
 
-/* Metrics Dashboard */
+/* Metrics Dashboard (3 Horizontal Columns under Canvases) */
 .metrics-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 16px;
+    margin-top: 16px;
 }
 
 .metric-card {
@@ -251,6 +253,7 @@ canvas {
     border-radius: 12px;
     padding: 16px;
     text-align: center;
+    box-shadow: var(--card-shadow);
 }
 
 .metric-card .title {
@@ -266,3 +269,49 @@ canvas {
     font-weight: 700;
     color: var(--accent-blue);
 }
+
+/* Minimap Overview Box (Placed below Metrics) */
+.minimap-card {
+    background: var(--bg-card);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 16px;
+    margin-top: 20px;
+    box-shadow: var(--card-shadow);
+}
+
+.minimap-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.minimap-header h3 {
+    font-size: 0.95rem;
+    color: var(--accent-blue);
+    margin: 0;
+}
+
+.minimap-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+#canvas-minimap {
+    width: 360px;
+    height: 240px;
+    border: 2px solid rgba(56, 189, 248, 0.4);
+    border-radius: 8px;
+    cursor: crosshair;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.minimap-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
