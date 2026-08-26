@@ -181,13 +181,25 @@ def detect_periodicity(matrix: np.ndarray, max_p: int = 100) -> Optional[int]:
             return p
     return None
 
+def evaluate_dominance(rule_a: int, rule_b: int, ent_a: float, ent_b: float, ent_mix: float) -> str:
+    """Evaluate rule dominance / recessiveness based on entropy shift."""
+    diff_a = abs(ent_mix - ent_a)
+    diff_b = abs(ent_mix - ent_b)
+    if diff_a < 0.12 and diff_b > 0.3:
+        return f"Rule A ({rule_a}) DOMINATES Rule B ({rule_b})"
+    elif diff_b < 0.12 and diff_a > 0.3:
+        return f"Rule B ({rule_b}) DOMINATES Rule A ({rule_a})"
+    else:
+        return "CO-DOMINANT / Emergent Hybrid Class"
+
 def compare_patterns(rule_a: int, rule_b: int, width: int = 200, steps: int = 150, 
                      column_mode: str = 'specific', specific_cols = "30, 60, 90, 120", mix_ratio: float = 0.5, 
                      init_mode: str = 'random', init_density: float = 0.5, seed: int = 42,
+                     view_x: int = 0, view_y: int = 0, view_w: int = 200, view_h: int = 200,
                      save_fig: str = "ca_mixing_comparison.png"):
     """
     Run simulation for Base Rule A, Target Rule B, and Column-Mixed Rule.
-    Displays side-by-side matrices and prints classification metrics.
+    Displays 200x200 viewport window from full spacetime matrix and prints classification & dominance metrics.
     """
     initial_config = generate_initial_config(width, mode=init_mode, density=init_density, seed=seed)
     col_mask = generate_column_mask(width, mode=column_mode, ratio=mix_ratio, seed=seed, specific_cols=specific_cols)
@@ -206,46 +218,59 @@ def compare_patterns(rule_a: int, rule_b: int, width: int = 200, steps: int = 15
 
     class_a = RULE_CLASSES.get(rule_a, 'Unknown')
     class_b = RULE_CLASSES.get(rule_b, 'Unknown')
+    dominance_str = evaluate_dominance(rule_a, rule_b, ent_a, ent_b, ent_mix)
 
     # Heuristic classification of mixed result
     if per_mix is not None:
         if per_mix == 1:
             mix_class = "Class I (Homogeneous)"
         else:
-            mix_class = f"Class II (Periodic, period {per_mix})"
+            mix_class = f"Class II (Periodic, P={per_mix})"
     else:
         if ent_mix > 2.2:
             mix_class = "Class III (Chaotic)"
         else:
             mix_class = "Class IV / Complex Transient"
 
-    print("=" * 65)
-    print(f"CELLULAR AUTOMATA COLUMN MIXING COMPARISON")
-    print("=" * 65)
+    print("=" * 70)
+    print(f"CELLULAR AUTOMATA COLUMN MIXING EXPERIMENT (Matrix: {width}x{steps})")
+    print("=" * 70)
     print(f"Base Rule A       : Rule {rule_a} [{class_a}] | Entropy: {ent_a:.3f} | Period: {per_a}")
     print(f"Target Rule B     : Rule {rule_b} [{class_b}] | Entropy: {ent_b:.3f} | Period: {per_b}")
-    print(f"Column Mixed Rule : {rule_a} + {rule_b} (mode: {column_mode}, ratio: {mix_ratio})")
+    print(f"Column Mixed Rule : Rule {rule_a} + Rule {rule_b} (mode: {column_mode})")
     print(f"Mixed Result      : Entropy: {ent_mix:.3f} | Period: {per_mix} | Inferred: {mix_class}")
-    print("=" * 65)
+    print(f"Dominance Status  : {dominance_str}")
+    print("=" * 70)
+
+    # Viewport sampling (slice view_h x view_w window from step view_y, col view_x)
+    vh = min(view_h, steps)
+    vw = min(view_w, width)
+    vy = min(view_y, steps - vh)
+    vx = min(view_x, width - vw)
+
+    sub_a = mat_a[vy:vy+vh, vx:vx+vw]
+    sub_mix = mat_mix[vy:vy+vh, vx:vx+vw]
+    sub_b = mat_b[vy:vy+vh, vx:vx+vw]
+    sub_mask = col_mask[vx:vx+vw]
 
     # Plot comparisons
     fig, axes = plt.subplots(1, 4, figsize=(18, 6), gridspec_kw={'width_ratios': [1, 1, 1, 0.15]})
     
-    axes[0].imshow(mat_a, cmap='binary', interpolation='nearest')
+    axes[0].imshow(sub_a, cmap='binary', interpolation='nearest')
     axes[0].set_title(f"Base Rule {rule_a}\n[{class_a}]", fontsize=12, fontweight='bold')
-    axes[0].set_ylabel("Time Step (t)")
-    axes[0].set_xlabel("Cell Position (x)")
+    axes[0].set_ylabel(f"Time Step t ({vy}..{vy+vh})")
+    axes[0].set_xlabel(f"Cell Position x ({vx}..{vx+vw})")
 
-    axes[1].imshow(mat_mix, cmap='binary', interpolation='nearest')
-    axes[1].set_title(f"Column-Mixed Matrix\n[{rule_a} mixed with {rule_b}]\n{mix_class}", fontsize=11, fontweight='bold', color='darkblue')
-    axes[1].set_xlabel("Cell Position (x)")
+    axes[1].imshow(sub_mix, cmap='binary', interpolation='nearest')
+    axes[1].set_title(f"Column-Mixed Viewport ({vw}x{vh})\n[{mix_class}]\n{dominance_str}", fontsize=10, fontweight='bold', color='darkblue')
+    axes[1].set_xlabel(f"Cell Position x ({vx}..{vx+vw})")
 
-    axes[2].imshow(mat_b, cmap='binary', interpolation='nearest')
+    axes[2].imshow(sub_b, cmap='binary', interpolation='nearest')
     axes[2].set_title(f"Target Rule {rule_b}\n[{class_b}]", fontsize=12, fontweight='bold')
-    axes[2].set_xlabel("Cell Position (x)")
+    axes[2].set_xlabel(f"Cell Position x ({vx}..{vx+vw})")
 
     # Display column mask indicator
-    col_img = np.tile(col_mask, (steps, 1))
+    col_img = np.tile(sub_mask, (vh, 1))
     axes[3].imshow(col_img, cmap='coolwarm', aspect='auto')
     axes[3].set_title("Column Mask\n(Blue=A, Red=B)", fontsize=9)
     axes[3].set_xticks([])
@@ -253,10 +278,23 @@ def compare_patterns(rule_a: int, rule_b: int, width: int = 200, steps: int = 15
 
     plt.tight_layout()
     plt.savefig(save_fig, dpi=300)
-    print(f"Plot saved to: {save_fig}")
+    print(f"Viewport plot saved to: {save_fig}")
     return fig
 
 if __name__ == "__main__":
     print(f"Loaded {len(WOLFRAM_88_RULES)} Wolfram Fundamental Rules.")
-    # Example experiment: Mix Rule 108 (Periodic, Class II) with Rule 30 (Chaotic, Class III)
-    compare_patterns(rule_a=108, rule_b=30, width=200, steps=150, column_mode='random', mix_ratio=0.3, seed=42)
+    # Example 10,000 x 10,000 experiment sampling 200 x 200 viewport window at t=5000, x=4900
+    compare_patterns(
+        rule_a=108, 
+        rule_b=30, 
+        width=1000, 
+        steps=1000, 
+        column_mode='specific', 
+        specific_cols="200, 400, 600, 800", 
+        view_x=400, 
+        view_y=400, 
+        view_w=200, 
+        view_h=200, 
+        seed=42
+    )
+

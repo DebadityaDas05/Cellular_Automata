@@ -165,27 +165,31 @@
         return mat;
     }
 
-    function renderMatrixToCanvas(canvas, matrix, color0 = '#0f172a', color1 = '#38bdf8') {
+    function renderMatrixToCanvas(canvas, matrix, color0 = '#0f172a', color1 = '#38bdf8', viewX = 0, viewY = 0, viewW = null, viewH = null) {
         let ctx = canvas.getContext('2d');
         let st = matrix.length;
         let w = matrix[0].length;
 
-        canvas.width = w;
-        canvas.height = st;
+        let renderW = viewW || w;
+        let renderH = viewH || st;
 
-        let imgData = ctx.createImageData(w, st);
+        canvas.width = renderW;
+        canvas.height = renderH;
+
+        let imgData = ctx.createImageData(renderW, renderH);
         let data = imgData.data;
 
-        // Parse colors
         let c0 = parseColor(color0);
         let c1 = parseColor(color1);
 
         let ptr = 0;
-        for (let t = 0; t < st; t++) {
+        for (let y = 0; y < renderH; y++) {
+            let t = (viewY + y) % st;
             let row = matrix[t];
-            for (let i = 0; i < w; i++) {
+            for (let x = 0; x < renderW; x++) {
+                let i = (viewX + x) % w;
                 let bit = row[i];
-                let c = bit === 1 ? c1 : c0;
+                let c = (bit === 1) ? c1 : c0;
                 data[ptr] = c[0];
                 data[ptr + 1] = c[1];
                 data[ptr + 2] = c[2];
@@ -196,23 +200,28 @@
         ctx.putImageData(imgData, 0, 0);
     }
 
-    function renderMaskToCanvas(canvas, mask, st) {
+    function renderMaskToCanvas(canvas, mask, renderH, viewX = 0, viewW = null) {
         let ctx = canvas.getContext('2d');
         let w = mask.length;
-        canvas.width = w;
-        canvas.height = st;
 
-        let imgData = ctx.createImageData(w, st);
+        let rW = viewW || w;
+        let rH = renderH;
+
+        canvas.width = rW;
+        canvas.height = rH;
+
+        let imgData = ctx.createImageData(rW, rH);
         let data = imgData.data;
 
         let cA = [56, 189, 248];  // Blue for Rule A
         let cB = [244, 63, 94];   // Rose/Red for Rule B
 
-        for (let t = 0; t < st; t++) {
-            for (let i = 0; i < w; i++) {
+        for (let y = 0; y < rH; y++) {
+            for (let x = 0; x < rW; x++) {
+                let i = (viewX + x) % w;
                 let bit = mask[i];
-                let c = bit === 1 ? cB : cA;
-                let ptr = (t * w + i) * 4;
+                let c = (bit === 1) ? cB : cA;
+                let ptr = (y * rW + x) * 4;
                 data[ptr] = c[0];
                 data[ptr + 1] = c[1];
                 data[ptr + 2] = c[2];
@@ -296,20 +305,66 @@
         return { class: 'Class IV', text: 'Class IV (Complex/Localized)' };
     }
 
-    function updateSimulation() {
-        // Read UI inputs
-        ruleA = parseInt(selRuleA.value, 10);
-        ruleB = parseInt(selRuleB.value, 10);
-        columnMode = selColMode.value;
-        mixRatio = parseFloat(sliderRatio.value);
-        initMode = selInitMode.value;
-        initDensity = parseFloat(sliderDensity.value);
-        seed = parseInt(inputSeed.value, 10) || 42;
-        customPatternStr = inputCustomPattern.value.trim();
-        let specificStr = inputSpecificCols ? inputSpecificCols.value.trim() : '';
+    let selGridScale, sliderViewY, sliderViewX, txtViewYVal, txtViewXVal, textDominance;
 
-        txtRatioVal.textContent = Math.round(mixRatio * 100) + '%';
-        txtDensityVal.textContent = Math.round(initDensity * 100) + '%';
+    function evaluateDominance(ruleA, ruleB, entA, entB, entMix, perMix) {
+        let diffA = Math.abs(entMix - entA);
+        let diffB = Math.abs(entMix - entB);
+
+        if (diffA < 0.12 && diffB > 0.3) {
+            return `Dominance: Base Rule ${ruleA} Dominates (${ruleA} ≻ ${ruleB})`;
+        } else if (diffB < 0.12 && diffA > 0.3) {
+            return `Dominance: Affected Rule ${ruleB} Dominates (${ruleB} ≻ ${ruleA})`;
+        } else {
+            return `Dominance: Co-Dominant / Emergent Hybrid`;
+        }
+    }
+
+    function updateSimulation() {
+        // Read UI inputs safely with fallbacks
+        ruleA = (selRuleA && selRuleA.value) ? parseInt(selRuleA.value, 10) : 108;
+        ruleB = (selRuleB && selRuleB.value) ? parseInt(selRuleB.value, 10) : 30;
+        columnMode = (selColMode && selColMode.value) ? selColMode.value : 'specific';
+        mixRatio = (sliderRatio && sliderRatio.value) ? parseFloat(sliderRatio.value) : 0.3;
+        initMode = (selInitMode && selInitMode.value) ? selInitMode.value : 'random';
+        initDensity = (sliderDensity && sliderDensity.value) ? parseFloat(sliderDensity.value) : 0.5;
+        seed = (inputSeed && inputSeed.value) ? (parseInt(inputSeed.value, 10) || 42) : 42;
+        customPatternStr = (inputCustomPattern && inputCustomPattern.value) ? inputCustomPattern.value.trim() : '';
+        let specificStr = (inputSpecificCols && inputSpecificCols.value) ? inputSpecificCols.value.trim() : '';
+
+        // Read Grid Scale
+        let scaleVal = (selGridScale && selGridScale.value) ? selGridScale.value : '240x180';
+        let groupView = document.getElementById('group-viewport-controls');
+
+        if (scaleVal === '10000x10000') {
+            width = 10000;
+            steps = 10000;
+            if (groupView) groupView.style.display = 'block';
+        } else if (scaleVal === '1000x1000') {
+            width = 1000;
+            steps = 1000;
+            if (groupView) groupView.style.display = 'block';
+        } else {
+            width = 240;
+            steps = 180;
+            if (groupView) groupView.style.display = 'none';
+        }
+
+        let viewY = (sliderViewY && sliderViewY.value) ? parseInt(sliderViewY.value, 10) : 0;
+        let viewX = (sliderViewX && sliderViewX.value) ? parseInt(sliderViewX.value, 10) : 0;
+
+        // Viewport window dimensions (sample 200x200 if large scale)
+        let renderW = (width > 240) ? 200 : width;
+        let renderH = (steps > 180) ? 200 : steps;
+
+        viewY = Math.max(0, Math.min(viewY, steps - renderH));
+        viewX = Math.max(0, Math.min(viewX, width - renderW));
+
+        if (txtViewYVal) txtViewYVal.textContent = `t=${viewY}`;
+        if (txtViewXVal) txtViewXVal.textContent = `x=${viewX}`;
+
+        if (txtRatioVal) txtRatioVal.textContent = Math.round(mixRatio * 100) + '%';
+        if (txtDensityVal) txtDensityVal.textContent = Math.round(initDensity * 100) + '%';
 
         // Toggle control visibility based on column mode
         let groupSpecific = document.getElementById('group-specific-cols');
@@ -330,10 +385,10 @@
         let matMix = simulateColumnMixedRule(initRow, steps, ruleA, ruleB, mask);
 
         // Render to canvases
-        renderMatrixToCanvas(canvasBase, matA, '#0f172a', '#38bdf8');
-        renderMatrixToCanvas(canvasTarget, matB, '#0f172a', '#f43f5e');
-        renderMatrixToCanvas(canvasMixed, matMix, '#0f172a', '#a855f7');
-        renderMaskToCanvas(canvasMask, mask, steps);
+        renderMatrixToCanvas(canvasBase, matA, '#0f172a', '#38bdf8', viewX, viewY, renderW, renderH);
+        renderMatrixToCanvas(canvasTarget, matB, '#0f172a', '#f43f5e', viewX, viewY, renderW, renderH);
+        renderMatrixToCanvas(canvasMixed, matMix, '#0f172a', '#a855f7', viewX, viewY, renderW, renderH);
+        renderMaskToCanvas(canvasMask, mask, renderH, viewX, renderW);
 
         // Compute metrics
         let entA = computeEntropy(matA);
@@ -347,6 +402,7 @@
         let classA = window.Wolfram88.CLASSES[ruleA] || 'Unknown';
         let classB = window.Wolfram88.CLASSES[ruleB] || 'Unknown';
         let mixClassInfo = classifyResult(matMix, entMix, perMix);
+        let dominanceStr = evaluateDominance(ruleA, ruleB, entA, entB, entMix, perMix);
 
         // Update UI Badges & Text
         badgeClassA.textContent = `Base Rule ${ruleA} [Class ${classA}]`;
@@ -356,6 +412,7 @@
         textEntA.textContent = entA.toFixed(3);
         textEntB.textContent = entB.toFixed(3);
         textEntMix.textContent = entMix.toFixed(3);
+        if (textDominance) textDominance.textContent = dominanceStr;
 
         textPerA.textContent = perA ? `P = ${perA}` : 'Aperiodic / High Period';
         textPerB.textContent = perB ? `P = ${perB}` : 'Aperiodic / High Period';
@@ -369,6 +426,13 @@
         inputSpecificCols = document.getElementById('input-specific-cols');
         sliderRatio = document.getElementById('slider-ratio');
         txtRatioVal = document.getElementById('txt-ratio-val');
+
+        selGridScale = document.getElementById('sel-grid-scale');
+        sliderViewY = document.getElementById('slider-view-y');
+        sliderViewX = document.getElementById('slider-view-x');
+        txtViewYVal = document.getElementById('txt-view-y-val');
+        txtViewXVal = document.getElementById('txt-view-x-val');
+        textDominance = document.getElementById('text-dominance');
 
         selInitMode = document.getElementById('sel-init-mode');
         sliderDensity = document.getElementById('slider-density');
@@ -414,20 +478,23 @@
             selRuleB.appendChild(optB);
         });
 
-        // Event listeners
-        selRuleA.addEventListener('change', updateSimulation);
-        selRuleB.addEventListener('change', updateSimulation);
-        selColMode.addEventListener('change', updateSimulation);
-        if (inputSpecificCols) inputSpecificCols.addEventListener('input', updateSimulation);
-        sliderRatio.addEventListener('input', updateSimulation);
-        selInitMode.addEventListener('change', updateSimulation);
-        sliderDensity.addEventListener('input', updateSimulation);
-        inputSeed.addEventListener('input', updateSimulation);
-        inputCustomPattern.addEventListener('input', updateSimulation);
-        btnRun.addEventListener('click', updateSimulation);
+        // Event listeners (null-safe)
+        selRuleA?.addEventListener('change', updateSimulation);
+        selRuleB?.addEventListener('change', updateSimulation);
+        selColMode?.addEventListener('change', updateSimulation);
+        inputSpecificCols?.addEventListener('input', updateSimulation);
+        sliderRatio?.addEventListener('input', updateSimulation);
+        selGridScale?.addEventListener('change', updateSimulation);
+        sliderViewY?.addEventListener('input', updateSimulation);
+        sliderViewX?.addEventListener('input', updateSimulation);
+        selInitMode?.addEventListener('change', updateSimulation);
+        sliderDensity?.addEventListener('input', updateSimulation);
+        inputSeed?.addEventListener('input', updateSimulation);
+        inputCustomPattern?.addEventListener('input', updateSimulation);
+        btnRun?.addEventListener('click', updateSimulation);
 
-        btnRandomizeSeed.addEventListener('click', () => {
-            inputSeed.value = Math.floor(Math.random() * 900000) + 100000;
+        btnRandomizeSeed?.addEventListener('click', () => {
+            if (inputSeed) inputSeed.value = Math.floor(Math.random() * 900000) + 100000;
             updateSimulation();
         });
 
@@ -459,5 +526,9 @@
         updateSimulation();
     }
 
-    document.addEventListener('DOMContentLoaded', initUI);
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        initUI();
+    } else {
+        document.addEventListener('DOMContentLoaded', initUI);
+    }
 })();
